@@ -50,7 +50,8 @@ class RNNT(torch.nn.Module):
 
     def forward(self, x_padded: torch.Tensor, x_lens: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         return self.encoder(x_padded, x_lens)
-        
+
+
 
 class Encoder(torch.nn.Module):
     def __init__(self, in_features, encoder_n_hidden,
@@ -141,9 +142,9 @@ class Prediction(torch.nn.Module):
         #        for _ in range(self.pred_rnn_layers)
         #    ]
 
-        y = y.transpose(0, 1)  # .contiguous()   # (U + 1, B, H)
+#        y = y.transpose(0, 1)  # .contiguous()   # (U + 1, B, H)
         g, hid = self.dec_rnn(y, state)
-        g = g.transpose(0, 1)  # .contiguous()   # (B, U + 1, H)
+#        g = g.transpose(0, 1)  # .contiguous()   # (B, U + 1, H)
         # del y, state
         return g, hid
 

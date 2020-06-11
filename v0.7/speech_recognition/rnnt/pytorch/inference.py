@@ -17,13 +17,14 @@ from tqdm import tqdm
 import toml
 from dataset import AudioToTextDataLayer
 from helpers import process_evaluation_batch, process_evaluation_epoch, add_blank_label, print_dict
-from decoders import RNNTGreedyDecoder, ScriptGreedyDecoder
+from decoders import ScriptGreedyDecoder
 from model_separable_rnnt import RNNT
 from preprocessing import AudioPreprocessing
 import torch
 import random
 import numpy as np
 import pickle
+import time
 
 from copy import deepcopy
 
@@ -114,8 +115,8 @@ def eval(
             # type is different. I suppose that may make sense. I have
             # changed the type, since some non-constant values are now
             # constant!
-            model = torch.jit._recursive.wrap_cpp_module(
-                torch._C._freeze_module(greedy_decoder._model._c))
+#            model = torch.jit._recursive.wrap_cpp_module(
+#                torch._C._freeze_module(greedy_decoder._model._c))
 
             # TODO: Why does this silently do nothing? Try using
             # tracing in a separate unit-test.
@@ -126,18 +127,38 @@ def eval(
             #     fh.write(str(model.forward.inlined_graph))
             
             # import sys; sys.exit(0)
-
+#            print(t_audio_signal_e.size())
+#            print(t_a_sig_length_e)
+#            padded = torch.empty(2048, 1, 240, dtype=torch.float)
+#            padded[0:t_a_sig_length_e,0:1,0:240] = t_audio_signal_e
             logits, logits_lens, t_predictions_e = greedy_decoder(t_audio_signal_e, t_a_sig_length_e)
+            print(t_predictions_e)
+            newlist = []
+            for item in t_predictions_e[0]:
+                newlist.append(item.item())
+            t_predictions_e[0]=newlist
+            print(t_predictions_e)
+#            logits, logits_lens, t_predictions_e = greedy_decoder(padded, t_a_sig_length_e)
+            if True:
+                from torch.onnx import OperatorExportTypes
 
-            # torch.onnx.export(model,
-            #                   (t_audio_signal_e, t_a_sig_length_e),
-            #                   'greedy_decoder.onnx',
-            #                   verbose=True,
-            #                   input_names=['input', 'input_length'],
-            #                   example_outputs=(logits, logits_lens, t_predictions_e)
-            # )
-
-
+#                faux_x = torch.randn([220,1,240])
+#                faux_len = torch.ones([1], dtype=torch.int64)
+#                faux_len.fill_(220)
+#                torch.onnx.export(encoderdecoder,
+                torch.onnx.export(greedy_decoder,#encoderdecoder,
+#                torch.onnx.export(greedy_decoder._model,
+#                              (faux_x, faux_len),
+                              (t_audio_signal_e, t_a_sig_length_e),
+                              'greedy_decoder.onnx',
+                              operator_export_type=OperatorExportTypes.ONNX,
+                              opset_version=11,
+                              verbose=True,
+                              input_names=['input', 'input_length'],
+                              dynamic_axes= {'input':{0:'seq_len'}}
+#                              example_outputs=(logits, logits_lens, t_predictions_e)
+                )
+                import sys; sys.exit(0)
             values_dict = dict(
                 predictions=[t_predictions_e],
                 transcript=transcript_list,
@@ -153,10 +174,10 @@ def eval(
         if args.save_prediction is not None:
             with open(args.save_prediction, 'w') as fp:
                 fp.write('\n'.join(_global_var_dict['predictions']))
-        if logits_save_to is not None:
-            logits = []
-            with open(logits_save_to, 'wb') as f:
-                pickle.dump(logits, f, protocol=pickle.HIGHEST_PROTOCOL)
+#        if logits_save_to is not None:
+#            logits = []
+#            with open(logits_save_to, 'wb') as f:
+#                pickle.dump(logits, f, protocol=pickle.HIGHEST_PROTOCOL)
 
 
 def main(args):
@@ -208,9 +229,17 @@ def main(args):
             # key = key.replace("encoder.", "encoder_").replace("prediction.", "prediction_")
             key = key.replace("joint_net", "joint.net")
             migrated_state_dict[key] = value
+#            print("key - " + key)
+#            print(value.size())
+#            if key.startswith("pred") or key.startswith("join"):
+#                del migrated_state_dict[key]
         del migrated_state_dict["audio_preprocessor.featurizer.fb"]
         del migrated_state_dict["audio_preprocessor.featurizer.window"]
-        model.load_state_dict(migrated_state_dict, strict=True)
+        model.load_state_dict(migrated_state_dict, strict=False)
+#        del checkpoint['state_dict']["audio_preprocessor.featurizer.fb"]
+#        del checkpoint['state_dict']["audio_preprocessor.featurizer.window"]
+#        model.eval()
+#        torch.save(migrated_state_dict,"test.pt")
 
     audio_preprocessor.featurizer.normalize = "per_feature"
 
@@ -230,11 +259,12 @@ def main(args):
     if args.cuda:
         model.cuda()
 
-    # greedy_decoder = RNNTGreedyDecoder(len(rnnt_vocab) - 1, model)
+#    greedy_decoder = RNNTGreedyDecoder(len(rnnt_vocab) - 1, model)
     model.eval()
     # torch.nn.LSTM.__constants__.append('training')
-    greedy_decoder = ScriptGreedyDecoder(len(rnnt_vocab) - 1, torch.jit.script(model))
-    greedy_decoder = torch.jit.script(greedy_decoder)
+    greedy_decoder = ScriptGreedyDecoder(len(rnnt_vocab) - 1, model)
+#    greedy_decoder = ScriptGreedyDecoder(len(rnnt_vocab) - 1, torch.jit.script(model))
+#    greedy_decoder = torch.jit.script(greedy_decoder)
     # torch.nn.LSTM.__constants__.pop()
     eval(
         data_layer=data_layer,

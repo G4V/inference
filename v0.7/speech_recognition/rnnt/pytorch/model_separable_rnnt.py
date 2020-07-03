@@ -6,7 +6,6 @@ import os
 
 from rnn import rnn
 from rnn import StackTime
-from naive_lstm import NaiveStackedLSTM
 
 
 class RNNT(torch.nn.Module):
@@ -56,9 +55,9 @@ class RNNT(torch.nn.Module):
     def forward(self, x_padded: torch.Tensor, x_lens: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         return self.encoder(x_padded, x_lens)
 
-    def hotswap_init(self):
-        self.encoder.hotswap_init()
-        self.prediction.hotswap_init()
+    def plugin_init(self):
+        self.encoder.plugin_init()
+        self.prediction.plugin_init()
 
 class DumpRNN():
     def __init__(self, fn, prefix):
@@ -104,27 +103,31 @@ class Encoder(torch.nn.Module):
         self.call_pre_rnn = (self.pre_rnn if not dump_pre else DumpRNN( self.pre_rnn, dump_pre))
         self.call_post_rnn = (self.post_rnn if not dump_post else DumpRNN( self.post_rnn, dump_post))
 
-        self.naive_lstm_pre = None
-        hotswap_pre = os.environ.get('CK_RNNT_HOTSWAP_PRE', 'None')
-        if hotswap_pre == 'Naive':
-            print("LSTM PRE: Swapping to Naive implementation")
-            self.naive_lstm_pre  = NaiveStackedLSTM(input_size=in_features, hidden_size=encoder_n_hidden,
+        self.plugin_lstm_pre = None
+        plugin_pre = os.environ.get('CK_RNNT_PLUGIN_PRE', 'None')
+        if plugin_pre != 'None':
+            import nntest_plugins
+            lstm_plugin = nntest_plugins.getPlugin("LSTM", plugin_pre)
+            print("LSTM PRE: Swapping to %s implementation" % plugin_pre)
+            self.plugin_lstm_pre  = lstm_plugin.LSTM(input_size=in_features, hidden_size=encoder_n_hidden,
                                                num_layers=encoder_pre_rnn_layers, dropout=0.0)
 
-        self.naive_lstm_post = None
-        hotswap_post = os.environ.get('CK_RNNT_HOTSWAP_POST', 'None')
-        if hotswap_post == 'Naive':
-            print("LSTM POST: Swapping to Naive implementation")
-            self.naive_lstm_post = NaiveStackedLSTM(input_size=encoder_stack_time_factor * encoder_n_hidden, hidden_size=encoder_n_hidden,
+        self.plugin_lstm_post = None
+        plugin_post = os.environ.get('CK_RNNT_PLUGIN_POST', 'None')
+        if plugin_post != 'None':
+            import nntest_plugins
+            lstm_plugin = nntest_plugins.getPlugin("LSTM", plugin_post)
+            print("LSTM POST: Swapping to %s implementation" % plugin_post)
+            self.plugin_lstm_post = lstm_plugin.LSTM(input_size=encoder_stack_time_factor * encoder_n_hidden, hidden_size=encoder_n_hidden,
                                                num_layers=encoder_post_rnn_layers, dropout=0.0)
 
-    def hotswap_init(self):
-        if self.naive_lstm_pre != None:
-            self.naive_lstm_pre.set_weights(self.pre_rnn.lstm)
-            self.pre_rnn.lstm = self.naive_lstm_pre
-        if self.naive_lstm_post != None:
-            self.naive_lstm_post.set_weights(self.post_rnn.lstm)
-            self.post_rnn.lstm = self.naive_lstm_post
+    def plugin_init(self):
+        if self.plugin_lstm_pre != None:
+            self.plugin_lstm_pre.set_weights(self.pre_rnn.lstm)
+            self.pre_rnn.lstm = self.plugin_lstm_pre
+        if self.plugin_lstm_post != None:
+            self.plugin_lstm_post.set_weights(self.post_rnn.lstm)
+            self.post_rnn.lstm = self.plugin_lstm_post
 
 
     def forward(self, x_padded: torch.Tensor, x_lens: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -153,17 +156,19 @@ class Prediction(torch.nn.Module):
         )
         self.call_dec_rnn = (self.dec_rnn if not dump_dec else DumpRNN( self.dec_rnn, dump_dec))
 
-        self.naive_lstm_dec = None
-        hotswap_dec = os.environ.get('CK_RNNT_HOTSWAP_DEC', 'None')
-        if hotswap_dec == 'Naive':
-            print("LSTM DEC: Swapping to Naive implementation")
-            self.naive_lstm_dec  = NaiveStackedLSTM(input_size=n_hidden, hidden_size=n_hidden,
+        self.plugin_lstm_dec = None
+        plugin_dec = os.environ.get('CK_RNNT_PLUGIN_DEC', 'None')
+        if plugin_dec != 'None':
+            import nntest_plugins
+            lstm_plugin = nntest_plugins.getPlugin("LSTM", plugin_dec)
+            print("LSTM DEC: Swapping to %s implementation" % plugin_dec)
+            self.plugin_lstm_dec  = lstm_plugin.LSTM(input_size=n_hidden, hidden_size=n_hidden,
                                                num_layers=pred_rnn_layers, dropout=0.0)
 
-    def hotswap_init(self):
-        if self.naive_lstm_dec != None:
-            self.naive_lstm_dec.set_weights(self.dec_rnn.lstm)
-            self.dec_rnn.lstm = self.naive_lstm_dec
+    def plugin_init(self):
+        if self.plugin_lstm_dec != None:
+            self.plugin_lstm_dec.set_weights(self.dec_rnn.lstm)
+            self.dec_rnn.lstm = self.plugin_lstm_dec
 
     def forward(self, y: Optional[torch.Tensor],
                 state: Optional[Tuple[torch.Tensor, torch.Tensor]] = None) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:

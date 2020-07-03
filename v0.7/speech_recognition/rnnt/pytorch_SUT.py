@@ -71,7 +71,7 @@ class PytorchSUT:
         model.load_state_dict(load_and_migrate_checkpoint(checkpoint_path),
                               strict=False)
         model.eval()
-        model.hotswap_init()
+        model.plugin_init()
         model.encoder = torch.jit.script(model.encoder)
         model.encoder = torch.jit._recursive.wrap_cpp_module(
             torch._C._freeze_module(model.encoder._c))
